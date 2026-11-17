@@ -18,7 +18,27 @@ const store={get(k){try{return window.localStorage.getItem(k)||''}catch(e){retur
 let autoVoice=store.get('jarvis_auto_voice')==='on';
 function updateAutoVoiceButton(){const b=$('autoVoice');if(b)b.textContent=autoVoice?'🔊 Auto voice ON':'🔈 Enable auto voice'}
 function speakReply(text){if(!text||!('speechSynthesis'in window))return;if(!autoVoice)return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang=/[\u0900-\u097F]/.test(text)?'hi-IN':'en-IN';u.rate=1;speechSynthesis.speak(u)}
-function enableAutoVoice(){if(!('speechSynthesis'in window)){add('This browser does not support speech output.','bot');return}autoVoice=true;store.set('jarvis_auto_voice','on');speechSynthesis.cancel();const u=new SpeechSynthesisUtterance('Automatic voice replies are enabled, Boss.');u.lang='en-IN';speechSynthesis.speak(u);updateAutoVoiceButton()}
+let recognition=null,listening=false,restarting=false;
+function updateAutoVoiceButton(){const b=$('autoVoice');if(b)b.textContent=listening?'🎙 Listening — tap to stop':(autoVoice?'🔊 Auto voice ON':'🔈 Enable auto voice')}
+function startListening(){
+ const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!SR){add('Hands-free voice input is not supported in this browser. Use the Voice button or iPhone keyboard dictation.','bot');return}
+ if(listening)return;
+ try{
+  recognition=new SR();recognition.lang='en-IN';recognition.continuous=true;recognition.interimResults=false;recognition.maxAlternatives=1;
+  recognition.onstart=()=>{listening=true;restarting=false;updateAutoVoiceButton();$('mode').textContent='● LISTENING'};
+  recognition.onresult=e=>{const r=e.results[e.results.length-1];if(r.isFinal&&r[0]?.transcript){$('prompt').value=r[0].transcript.trim();ask()}};
+  recognition.onerror=e=>{if(e.error==='not-allowed'||e.error==='service-not-allowed'){autoVoice=false;listening=false;store.set('jarvis_auto_voice','off');updateAutoVoiceButton();add('Microphone permission denied. Allow microphone access for this website, then tap Enable Auto Voice again.','bot')}};
+  recognition.onend=()=>{listening=false;updateAutoVoiceButton();if(autoVoice&&!restarting){restarting=true;setTimeout(()=>{restarting=false;if(autoVoice)startListening()},1000)}};
+  recognition.start();
+ }catch(e){listening=false;updateAutoVoiceButton();add('Could not start microphone: '+e.message,'bot')}
+}
+function stopListening(){autoVoice=false;listening=false;restarting=false;store.set('jarvis_auto_voice','off');if(recognition){recognition.onend=null;try{recognition.stop()}catch(e){}recognition=null}updateAutoVoiceButton();$('mode').textContent='● READY'}
+function enableAutoVoice(){
+ if(listening){stopListening();return}
+ if(!('speechSynthesis'in window)){add('Speech output is not supported in this browser.','bot');return}
+ autoVoice=true;store.set('jarvis_auto_voice','on');speechSynthesis.cancel();const u=new SpeechSynthesisUtterance('Hands-free mode is starting, Boss.');u.lang='en-IN';speechSynthesis.speak(u);updateAutoVoiceButton();startListening()
+}
 function add(text,who){const d=document.createElement('div');d.className='msg '+who;d.textContent=text;chat.appendChild(d);chat.scrollTop=chat.scrollHeight;if(who==='bot'){lastReply=text;speakReply(text)}}
 function config(){return {endpoint:$('endpoint').value.trim(),model:$('model').value.trim(),key:$('key').value.trim()}}
 function localAnswer(q){const s=q.toLowerCase();if(/\b(hello|hi|hey|namaste)\b/.test(s))return 'Hello, Boss. JARVIS is online and ready to assist.';if(s.includes('time'))return 'The time on your iPhone is '+new Date().toLocaleTimeString()+'.';if(s.includes('date')||s.includes('today'))return 'Today is '+new Date().toLocaleDateString(undefined,{weekday:'long',year:'numeric',month:'long',day:'numeric'})+'.';if(s.includes('who are you')||s.includes('introduce'))return 'I am JARVIS, your personal assistant interface. Offline mode is active. Connect an AI provider in settings for open-ended answers.';if(s.includes('help'))return 'I can answer greetings, tell you the date and time, and read responses aloud while offline. Connect an AI provider for broader conversations.';if(s.includes('gold')||s.includes('trading'))return 'I can help with trading education once an online AI provider is connected. Remember: no AI output is a guaranteed trading signal.';return 'I received: “'+q+'”. Offline mode has limited built-in commands. Connect a compatible AI provider below for full AI conversations.'}
